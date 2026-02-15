@@ -6,11 +6,11 @@ Tests all models, endpoints, and features of the Argo Gateway API
 with deep response validation and extensive rich-formatted feedback.
 
 Usage:
-    python argo_test_suite.py --user <your_anl_domain_user>
-    python argo_test_suite.py --user <your_anl_domain_user> --env dev
-    python argo_test_suite.py --user <your_anl_domain_user> --env prod --category openai
-    python argo_test_suite.py --user <your_anl_domain_user> --list-models
-    python argo_test_suite.py --user <your_anl_domain_user> --model gpt4o
+    python argoTestSuite.py -u <your_anl_domain_user>
+    python argoTestSuite.py -u <your_anl_domain_user> --env dev
+    python argoTestSuite.py -u <your_anl_domain_user> --env prod --category openai
+    python argoTestSuite.py -u <your_anl_domain_user> --list-models
+    python argoTestSuite.py -u <your_anl_domain_user> --model gpt4o
 """
 
 import argparse
@@ -1534,27 +1534,31 @@ def buildParser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python argo_test_suite.py --user mdearing
-  python argo_test_suite.py --user mdearing --env dev
-  python argo_test_suite.py --user mdearing --env dev --category anthropic
-  python argo_test_suite.py --user mdearing --model gpt4o
-  python argo_test_suite.py --user mdearing --list-models
-  python argo_test_suite.py --user mdearing --skip-stream --skip-compat
+  python argoTestSuite.py -u mdearing
+  python argoTestSuite.py -u mdearing --env dev
+  python argoTestSuite.py -u mdearing --env dev --category anthropic
+  python argoTestSuite.py -u mdearing --model gpt4o
+  python argoTestSuite.py -u mdearing --list-models
+  python argoTestSuite.py -u mdearing --skip-stream --skip-compat
         """,
     )
-    parser.add_argument("--user", required=True, help="Your ANL domain username (e.g., mdearing)")
+    parser.add_argument("-u", "--user", required=True, help="Your ANL domain username (e.g., mdearing)")
     parser.add_argument("--env", choices=["prod", "test", "dev"], default="dev",
                         help="Target environment (default: dev)")
     parser.add_argument("--category", choices=["openai", "google", "anthropic"],
                         help="Only test models from this vendor")
     parser.add_argument("--model", help="Only test a specific model ID (e.g., gpt4o)")
-    parser.add_argument("--list-models", action="store_true", help="List all models and exit")
-    parser.add_argument("--skip-stream", action="store_true", help="Skip streaming tests")
-    parser.add_argument("--skip-compat", action="store_true",
+    parser.add_argument("--list-models", action="store_true", dest="listModels",
+                        help="List all models and exit")
+    parser.add_argument("--skip-stream", action="store_true", dest="skipStream",
+                        help="Skip streaming tests")
+    parser.add_argument("--skip-compat", action="store_true", dest="skipCompat",
                         help="Skip OpenAI-compatible and Anthropic Messages tests")
-    parser.add_argument("--skip-tools", action="store_true", help="Skip tool/function calling tests")
-    parser.add_argument("--skip-embed", action="store_true", help="Skip embedding tests")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Show request/response details")
+    parser.add_argument("--skip-tools", action="store_true", dest="skipTools",
+                        help="Skip tool/function calling tests")
+    parser.add_argument("--skip-embed", action="store_true", dest="skipEmbed",
+                        help="Skip embedding tests")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show request/response details")
     return parser
 
 
@@ -1571,7 +1575,7 @@ def main() -> None:
     ))
     console.print()
 
-    if args.list_models:
+    if args.listModels:
         chatFiltered = filterModels(ALL_MODELS, args.env, args.category, args.model)
         printModelTable(chatFiltered, f"Chat Models ({args.env})")
         console.print()
@@ -1588,17 +1592,17 @@ def main() -> None:
     if args.model:
         configTree.add(f"Model filter: [cyan]{args.model}[/]")
     flagsNode = configTree.add("Flags")
-    flagsNode.add(f"Streaming: {'[red]skip[/]' if args.skip_stream else '[green]enabled[/]'}")
-    flagsNode.add(f"Compat endpoints: {'[red]skip[/]' if args.skip_compat else '[green]enabled[/]'}")
-    flagsNode.add(f"Tool calling: {'[red]skip[/]' if args.skip_tools else '[green]enabled[/]'}")
-    flagsNode.add(f"Embeddings: {'[red]skip[/]' if args.skip_embed else '[green]enabled[/]'}")
+    flagsNode.add(f"Streaming: {'[red]skip[/]' if args.skipStream else '[green]enabled[/]'}")
+    flagsNode.add(f"Compat endpoints: {'[red]skip[/]' if args.skipCompat else '[green]enabled[/]'}")
+    flagsNode.add(f"Tool calling: {'[red]skip[/]' if args.skipTools else '[green]enabled[/]'}")
+    flagsNode.add(f"Embeddings: {'[red]skip[/]' if args.skipEmbed else '[green]enabled[/]'}")
     flagsNode.add(f"Verbose: {'[green]on[/]' if args.verbose else '[dim]off[/]'}")
     console.print(configTree)
     console.print()
 
     # Filter models
     chatModels = filterModels(ALL_MODELS, args.env, args.category, args.model)
-    embedModels = EMBEDDING_MODELS if not args.skip_embed else []
+    embedModels = EMBEDDING_MODELS if not args.skipEmbed else []
     if args.model:
         embedModels = [m for m in embedModels if m.modelId == args.model]
 
@@ -1618,9 +1622,9 @@ def main() -> None:
 
     runner = ArgoTestRunner(args.user, args.env, verbose=args.verbose)
     runAllTests(runner, chatModels, embedModels,
-                skipStream=args.skip_stream,
-                skipCompat=args.skip_compat,
-                skipTools=args.skip_tools)
+                skipStream=args.skipStream,
+                skipCompat=args.skipCompat,
+                skipTools=args.skipTools)
 
     printSummary(runner.suite)
 
