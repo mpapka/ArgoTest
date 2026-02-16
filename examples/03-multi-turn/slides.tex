@@ -1,0 +1,237 @@
+% slides.tex — Multi-Turn Conversations with the Argo Gateway API
+% Compile: pdflatex slides.tex  (run twice for TOC)
+\documentclass[aspectratio=169,11pt]{beamer}
+
+% ── Packages ──────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+% ── Theme & colours ───────────────────────────────────────────────────────
+\usetheme{Madrid}
+\definecolor{anlblue}{RGB}{0,60,113}
+\definecolor{anlgold}{RGB}{214,164,3}
+\definecolor{codebg}{RGB}{245,245,245}
+\setbeamercolor{palette primary}{bg=anlblue,fg=white}
+\setbeamercolor{palette secondary}{bg=anlblue!80,fg=white}
+\setbeamercolor{palette tertiary}{bg=anlblue!60,fg=white}
+\setbeamercolor{frametitle}{bg=anlblue,fg=white}
+\setbeamercolor{title}{fg=anlblue}
+\setbeamercolor{structure}{fg=anlblue}
+\setbeamercolor{block title}{bg=anlblue,fg=white}
+\setbeamercolor{block body}{bg=codebg}
+
+% ── Listings style ────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{codebg},
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{anlblue!30},
+  keywordstyle=\color{anlblue}\bfseries,
+  stringstyle=\color{anlgold!80!black},
+  commentstyle=\color{gray},
+  showstringspaces=false,
+  tabsize=2,
+}
+
+% ── Meta ──────────────────────────────────────────────────────────────────
+\title{Multi-Turn Conversations with the Argo Gateway API}
+\subtitle{Feature Example 03 — Context Retention}
+\author{Argo Gateway Team}
+\institute{Argonne National Laboratory}
+\date{\today}
+
+% ══════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── 1. Title ──────────────────────────────────────────────────────────────
+\begin{frame}
+\titlepage
+\end{frame}
+
+% ── 2. The Problem: LLMs Are Stateless ───────────────────────────────────
+\begin{frame}{The Problem: LLMs Are Stateless}
+\begin{itemize}
+  \item Every API call is \textbf{independent} --- the model has no memory
+        between requests.
+  \item The gateway itself is also stateless --- no session tracking.
+  \item To create a ``conversation'', the caller must send the
+        \textbf{full message history} with every request.
+\end{itemize}
+
+\vspace{1em}
+\begin{block}{Implication}
+Context retention is the \emph{caller's} responsibility.  The messages
+array grows with each turn, and the model processes all of it on
+every request.
+\end{block}
+\end{frame}
+
+% ── 3. Building a Conversation ───────────────────────────────────────────
+\begin{frame}{Building a Conversation}
+\centering
+\begin{tabular}{clc}
+\toprule
+\textbf{Turn} & \textbf{Messages Sent} & \textbf{Count} \\
+\midrule
+1 & system, user$_1$
+  & 2 \\
+2 & system, user$_1$, assistant$_1$, user$_2$
+  & 4 \\
+3 & system, user$_1$, assistant$_1$, user$_2$, assistant$_2$, user$_3$
+  & 6 \\
+\bottomrule
+\end{tabular}
+
+\vspace{1em}
+Each turn appends the model's reply as an \texttt{assistant} message,
+then adds the next \texttt{user} message.  The alternating pattern
+\texttt{user}$\to$\texttt{assistant}$\to$\texttt{user} is required
+by all providers.
+\end{frame}
+
+% ── 4. The Test Conversation ─────────────────────────────────────────────
+\begin{frame}{The Test Conversation}
+\begin{description}
+  \item[Turn 1] ``I'm working on a research project called \textbf{Meridian}.''\\
+    \emph{Model acknowledges the project.}
+  \item[Turn 2] ``Meridian will study \textbf{climate patterns in the Arctic}
+    using satellite data.  What challenges might we face?''\\
+    \emph{Model discusses challenges, references the project.}
+  \item[Turn 3] ``Based on our conversation, can you summarize what my
+    project is called and what it will study?''\\
+    \emph{Model must recall ``Meridian'' and ``Arctic'' from context.}
+\end{description}
+
+\vspace{1em}
+\begin{block}{Why this works as a test}
+Turn 3 introduces \textbf{no new information}.  A correct answer
+proves the model processed the full conversation history.
+\end{block}
+\end{frame}
+
+% ── 5. Code: Incremental History ─────────────────────────────────────────
+\begin{frame}[fragile]{Code: Building History Incrementally}
+\begin{lstlisting}[language=Python,title={Core loop in the demo}]
+messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
+
+for userMessage, keywords in CONVERSATION_TURNS:
+    # Append the new user message
+    messages.append({"role": "user",
+                     "content": userMessage})
+
+    # Send full history to the gateway
+    payload = buildPayload(user, model,
+                           modelConfig, messages)
+    resp = requests.post(url, json=payload,
+                         timeout=120)
+    data = resp.json()
+
+    # Append assistant reply for next turn
+    respText = data.get("response", "")
+    messages.append({"role": "assistant",
+                     "content": respText})
+\end{lstlisting}
+\end{frame}
+
+% ── 6. Turn 3 Payload ────────────────────────────────────────────────────
+\begin{frame}[fragile]{What Turn 3's Payload Looks Like}
+\begin{lstlisting}[language=json,title={Full conversation in one request}]
+{ "user": "<username>", "model": "gpt4o",
+  "messages": [
+    {"role": "system",    "content": "You are Argo ..."},
+    {"role": "user",      "content": "I'm working on a
+                           project called Meridian."},
+    {"role": "assistant", "content": "Sounds exciting!
+                           I'd be happy to help ..."},
+    {"role": "user",      "content": "Meridian will study
+                           climate in the Arctic ..."},
+    {"role": "assistant", "content": "Arctic climate
+                           research has challenges ..."},
+    {"role": "user",      "content": "Summarize what my
+                           project is called and studies?"}
+  ],
+  "temperature": 0.1, "max_tokens": 300
+}
+\end{lstlisting}
+\end{frame}
+
+% ── 7. Validation Strategy ───────────────────────────────────────────────
+\begin{frame}{Validation: Proving Context Retention}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}clll@{}}
+\toprule
+\textbf{Turn} & \textbf{Keyword} & \textbf{Introduced} & \textbf{Must Appear} \\
+\midrule
+1 & ``meridian''  & Turn 1 & Turn 1 \\
+2 & ``meridian''  & Turn 1 & Turn 2 \\
+2 & ``arctic''    & Turn 2 & Turn 2 \\
+3 & ``meridian''  & Turn 1 & Turn 3 \\
+3 & ``arctic''    & Turn 2 & Turn 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.5em}
+Plus standard checks per turn: HTTP status, valid JSON, no error,
+non-empty response, latency.
+
+\vspace{1em}
+\begin{block}{If Turn 3 fails keyword checks}
+The model did not retain context --- either the gateway dropped
+messages or the model's context window was exceeded.
+\end{block}
+\end{frame}
+
+% ── 8. Running the Demo ──────────────────────────────────────────────────
+\begin{frame}[fragile]{Running the Demo}
+\begin{lstlisting}[language=bash,title={CLI usage}]
+# Both models (GPT-4o + Claude Sonnet 4.5)
+python multiTurnDemo.py -u <username>
+
+# Single model
+python multiTurnDemo.py -u <username> --model gpt4o
+python multiTurnDemo.py -u <username> --model claudesonnet45
+\end{lstlisting}
+
+\vspace{0.5em}
+Output shows each turn's user message, model response, and growing
+message count, followed by per-turn PASS/FAIL checks.
+
+\vspace{0.5em}
+\textbf{Requirements:} Python 3.10+, \texttt{requests} library,
+ANL domain username with Argo access.
+\end{frame}
+
+% ── 9. Summary & Next Steps ──────────────────────────────────────────────
+\begin{frame}{Summary \& Next Steps}
+\textbf{What we covered:}
+\begin{itemize}
+  \item LLMs are stateless --- the caller manages conversation history
+  \item Incremental message building with alternating user/assistant roles
+  \item Keyword-based context retention validation
+  \item Same pattern works across OpenAI and Anthropic models
+\end{itemize}
+
+\vspace{1em}
+\textbf{Next examples in the series:}
+\begin{enumerate}
+  \setcounter{enumi}{3}
+  \item Streaming responses
+  \item OpenAI-compatible endpoint
+  \item Anthropic Messages endpoint
+  \item Embeddings
+  \item Error handling
+  \item Parameter tuning
+\end{enumerate}
+\end{frame}
+
+\end{document}
