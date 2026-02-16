@@ -1,0 +1,305 @@
+% slides.tex — Tool Calling with the Argo Gateway API
+% Compile: pdflatex slides.tex  (run twice for TOC)
+\documentclass[aspectratio=169,11pt]{beamer}
+
+% ── Packages ──────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+% ── Theme & colours ───────────────────────────────────────────────────────
+\usetheme{Madrid}
+\definecolor{anlblue}{RGB}{0,60,113}
+\definecolor{anlgold}{RGB}{214,164,3}
+\definecolor{codebg}{RGB}{245,245,245}
+\setbeamercolor{palette primary}{bg=anlblue,fg=white}
+\setbeamercolor{palette secondary}{bg=anlblue!80,fg=white}
+\setbeamercolor{palette tertiary}{bg=anlblue!60,fg=white}
+\setbeamercolor{frametitle}{bg=anlblue,fg=white}
+\setbeamercolor{title}{fg=anlblue}
+\setbeamercolor{structure}{fg=anlblue}
+\setbeamercolor{block title}{bg=anlblue,fg=white}
+\setbeamercolor{block body}{bg=codebg}
+
+% ── Listings style ────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{codebg},
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{anlblue!30},
+  keywordstyle=\color{anlblue}\bfseries,
+  stringstyle=\color{anlgold!80!black},
+  commentstyle=\color{gray},
+  showstringspaces=false,
+  tabsize=2,
+}
+
+% ── Meta ──────────────────────────────────────────────────────────────────
+\title{Tool Calling with the Argo Gateway API}
+\subtitle{Feature Example 01 — Numerical Computation Tools}
+\author{Argo Gateway Team}
+\institute{Argonne National Laboratory}
+\date{\today}
+
+% ══════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── 1. Title ──────────────────────────────────────────────────────────────
+\begin{frame}
+\titlepage
+\end{frame}
+
+% ── 2. What is Tool / Function Calling? ───────────────────────────────────
+\begin{frame}{What is Tool / Function Calling?}
+\begin{itemize}
+  \item A mechanism that lets an LLM \textbf{request the execution} of an
+        external function instead of producing a plain-text answer.
+  \item The caller supplies \textbf{tool definitions} (JSON Schema) describing
+        available functions.
+  \item The model decides \emph{when} to call a tool and \emph{which arguments}
+        to pass.
+\end{itemize}
+
+\vspace{1em}
+\begin{block}{Why numerical tools?}
+An LLM can do symbolic math, but it \textbf{cannot} run numerical algorithms
+(Simpson's rule, central differences) to arbitrary precision.  These are ideal
+tool-calling candidates --- the model genuinely needs the tool.
+\end{block}
+\end{frame}
+
+% ── 3. Argo Gateway Architecture ─────────────────────────────────────────
+\begin{frame}{Argo Gateway Architecture}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\begin{itemize}
+  \item Unified REST API for multiple LLM providers
+  \item Endpoint: \texttt{POST /api/v1/resource/chat/}
+  \item Auth: \texttt{user} field in JSON body (ANL username)
+  \item Environments: \texttt{prod}, \texttt{test}, \texttt{dev}
+\end{itemize}
+
+\vspace{0.5em}
+\footnotesize
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Env} & \textbf{Base URL} \\
+\midrule
+prod & \texttt{apps.inside.anl.gov/argoapi} \\
+test & \texttt{apps-test.inside.anl.gov/argoapi} \\
+dev  & \texttt{apps-dev.inside.anl.gov/argoapi} \\
+\bottomrule
+\end{tabular}
+\end{column}
+\begin{column}{0.42\textwidth}
+\centering
+\textbf{Request Flow}
+
+\vspace{0.5em}
+\fbox{\parbox{0.9\linewidth}{\centering\small
+Client \\[2pt]
+$\downarrow$ POST JSON \\[2pt]
+\textbf{Argo Gateway} \\[2pt]
+$\downarrow$ \\[2pt]
+OpenAI / Anthropic / Google
+}}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ── 4. The Complete Round-Trip ────────────────────────────────────────────
+\begin{frame}{The Complete Round-Trip}
+\centering
+\begin{tabular}{cl}
+\toprule
+\textbf{Step} & \textbf{Action} \\
+\midrule
+1 & Send prompt + tool definitions to the model \\
+2 & Model responds with tool-call request(s) \\
+3 & Execute the tools locally (real Python math) \\
+4 & Send tool results back to the model \\
+5 & Model produces final natural-language answer \\
+\bottomrule
+\end{tabular}
+
+\vspace{1em}
+\begin{block}{Key point}
+The model \emph{does not execute} the function --- it returns a structured
+request.  Our code runs the actual computation and feeds the result back.
+\end{block}
+\end{frame}
+
+% ── 5. Defining the Tools ────────────────────────────────────────────────
+\begin{frame}[fragile]{Defining the Tools}
+Two tools, both using OpenAI-style JSON Schema:
+
+\begin{lstlisting}[language=json,title={\texttt{numericalIntegrate}}]
+{ "type": "function", "function": {
+    "name": "numericalIntegrate",
+    "description": "Compute the definite integral ...",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "expression":  {"type": "string"},
+        "lower_bound": {"type": "number"},
+        "upper_bound": {"type": "number"}
+      },
+      "required": ["expression","lower_bound","upper_bound"]
+} } }
+\end{lstlisting}
+
+\texttt{numericalDerivative} follows the same pattern with
+\texttt{expression} and \texttt{point} parameters.
+\end{frame}
+
+% ── 6. Tool Implementations ──────────────────────────────────────────────
+\begin{frame}[fragile]{Tool Implementations (Pure Python)}
+\begin{lstlisting}[language=Python,title={Simpson's rule integration}]
+def _simpsonsRule(exprStr, a, b, n=1000):
+    h = (b - a) / n
+    def f(x):
+        return eval(exprStr, {"__builtins__": {}},
+                    {**SAFE_MATH_NAMES, "x": x})
+    total = f(a) + f(b)
+    for i in range(1, n):
+        coeff = 4 if i % 2 != 0 else 2
+        total += coeff * f(a + i * h)
+    return total * h / 3
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,title={Central-difference derivative}]
+def executeDerivative(args):
+    x0, h = float(args["point"]), 1e-8
+    result = (f(x0 + h) - f(x0 - h)) / (2 * h)
+\end{lstlisting}
+
+No NumPy or SciPy needed --- only the \texttt{math} standard library.
+\end{frame}
+
+% ── 7. OpenAI Model Example ──────────────────────────────────────────────
+\begin{frame}[fragile]{OpenAI Example --- GPT-4o}
+\textbf{Parameters:} \texttt{temperature}, \texttt{top\_p}, \texttt{max\_tokens}
+(all optional, standard handling).
+
+\begin{lstlisting}[language=Python,title={Building the payload}]
+payload = {
+    "user": "<username>", "model": "gpt4o",
+    "messages": [
+      {"role": "system", "content": "You are a helpful
+       scientific assistant with access to tools."},
+      {"role": "user",   "content": "Compute the integral
+       of sin(x)*exp(-x) from 0 to 10 ..."},
+    ],
+    "tools": TOOL_DEFINITIONS,
+    "temperature": 0.1, "top_p": 0.9, "max_tokens": 1024,
+}
+\end{lstlisting}
+
+Model responds with structured \texttt{numericalIntegrate} and
+\texttt{numericalDerivative} calls.
+\end{frame}
+
+% ── 8. Anthropic Model Example ───────────────────────────────────────────
+\begin{frame}[fragile]{Anthropic Example --- Claude Sonnet 4.5}
+\textbf{Key differences from OpenAI:}
+\begin{itemize}
+  \item \texttt{max\_tokens} is \textbf{required}
+  \item Single-param constraint: only \texttt{temperature}
+        \emph{or} \texttt{top\_p}, not both
+\end{itemize}
+
+\begin{lstlisting}[language=Python,title={Anthropic-specific parameters}]
+# Only temperature (no top_p) + required max_tokens
+payload.update({
+    "temperature": 0.1,
+    "max_tokens":  1024,
+})
+\end{lstlisting}
+
+\begin{block}{Same tool definitions}
+The \texttt{tools} array uses the identical JSON Schema format.
+The gateway handles provider-specific translation.
+\end{block}
+\end{frame}
+
+% ── 9. Validation Strategy ───────────────────────────────────────────────
+\begin{frame}{Validation Strategy}
+Each step of the round-trip is validated:
+
+\vspace{0.5em}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Step} & \textbf{Check} & \textbf{Pass Condition} \\
+\midrule
+1, 4 & HTTP Status    & \texttt{statusCode == 200} \\
+1, 4 & Valid JSON     & Response parses as \texttt{dict} \\
+1, 4 & No Error       & No \texttt{"error"} key present \\
+1, 4 & Non-empty      & \texttt{response} field has content \\
+1, 4 & Latency        & \texttt{duration < 120s} \\
+2    & Tool Calls     & At least one tool call parsed \\
+3    & Execution      & All tools ran without error \\
+5    & Final Answer   & Contains numerical result(s) \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{frame}
+
+% ── 10. Running the Demo ─────────────────────────────────────────────────
+\begin{frame}[fragile]{Running the Demo}
+\begin{lstlisting}[language=bash,title={CLI usage}]
+# Both models (GPT-4o + Claude Sonnet 4.5)
+python toolCallingDemo.py -u <username>
+
+# Specific environment
+python toolCallingDemo.py -u <username> --env dev
+
+# Single model
+python toolCallingDemo.py -u <username> --model gpt4o
+python toolCallingDemo.py -u <username> --model claudesonnet45
+\end{lstlisting}
+
+\vspace{0.5em}
+\textbf{Requirements:} Python 3.10+, \texttt{requests} library,
+ANL domain username with Argo access.
+
+\vspace{0.5em}
+Output shows each step of the round-trip with coloured PASS/FAIL
+indicators, tool execution results, and the model's final answer.
+\end{frame}
+
+% ── 11. Summary & Next Steps ─────────────────────────────────────────────
+\begin{frame}{Summary \& Next Steps}
+\textbf{What we covered:}
+\begin{itemize}
+  \item Tool/function calling concepts --- why numerical tools are ideal
+  \item Complete 5-step round-trip: prompt $\to$ tool call $\to$ execute $\to$
+        result $\to$ final answer
+  \item Pure-Python tool implementations (Simpson's rule, central differences)
+  \item Provider-specific parameter handling (OpenAI vs Anthropic)
+  \item Automated validation at every step
+\end{itemize}
+
+\vspace{1em}
+\textbf{Next examples in the series:}
+\begin{enumerate}
+  \setcounter{enumi}{1}
+  \item Basic chat (messages \& prompt formats)
+  \item Multi-turn conversations
+  \item Streaming responses
+  \item OpenAI-compatible endpoint
+  \item Anthropic Messages endpoint
+  \item Embeddings
+  \item Error handling
+  \item Parameter tuning
+\end{enumerate}
+\end{frame}
+
+\end{document}
