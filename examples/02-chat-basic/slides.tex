@@ -1,0 +1,293 @@
+% slides.tex — Basic Chat with the Argo Gateway API
+% Compile: pdflatex slides.tex  (run twice for TOC)
+\documentclass[aspectratio=169,11pt]{beamer}
+
+% ── Packages ──────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+% ── Theme & colours ───────────────────────────────────────────────────────
+\usetheme{Madrid}
+\definecolor{anlblue}{RGB}{0,60,113}
+\definecolor{anlgold}{RGB}{214,164,3}
+\definecolor{codebg}{RGB}{245,245,245}
+\setbeamercolor{palette primary}{bg=anlblue,fg=white}
+\setbeamercolor{palette secondary}{bg=anlblue!80,fg=white}
+\setbeamercolor{palette tertiary}{bg=anlblue!60,fg=white}
+\setbeamercolor{frametitle}{bg=anlblue,fg=white}
+\setbeamercolor{title}{fg=anlblue}
+\setbeamercolor{structure}{fg=anlblue}
+\setbeamercolor{block title}{bg=anlblue,fg=white}
+\setbeamercolor{block body}{bg=codebg}
+
+% ── Listings style ────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{codebg},
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{anlblue!30},
+  keywordstyle=\color{anlblue}\bfseries,
+  stringstyle=\color{anlgold!80!black},
+  commentstyle=\color{gray},
+  showstringspaces=false,
+  tabsize=2,
+}
+
+% ── Meta ──────────────────────────────────────────────────────────────────
+\title{Basic Chat with the Argo Gateway API}
+\subtitle{Feature Example 02 — Messages \& Prompt Formats}
+\author{Argo Gateway Team}
+\institute{Argonne National Laboratory}
+\date{\today}
+
+% ══════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── 1. Title ──────────────────────────────────────────────────────────────
+\begin{frame}
+\titlepage
+\end{frame}
+
+% ── 2. Two Input Formats ─────────────────────────────────────────────────
+\begin{frame}{Two Ways to Send a Chat Request}
+The Argo Gateway \texttt{/api/v1/resource/chat/} endpoint accepts
+two input formats:
+
+\vspace{1em}
+\begin{columns}[T]
+\begin{column}{0.47\textwidth}
+\begin{block}{Messages Format}
+\begin{itemize}
+  \item Array of \texttt{\{role, content\}} objects
+  \item Mirrors the OpenAI Chat API
+  \item Supports \texttt{system}, \texttt{user}, \texttt{assistant} roles
+  \item Best for multi-turn conversations
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.47\textwidth}
+\begin{block}{Prompt Format}
+\begin{itemize}
+  \item Separate \texttt{system} and \texttt{prompt} fields
+  \item \texttt{prompt} is a list of strings
+  \item Simpler for single-turn requests
+  \item No role annotations needed
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{1em}
+Both formats work with \textbf{all} model families (OpenAI, Anthropic, Google).
+\end{frame}
+
+% ── 3. Messages Format ───────────────────────────────────────────────────
+\begin{frame}[fragile]{Messages Format}
+\begin{lstlisting}[language=json,title={Messages payload}]
+{
+  "user":     "<anl_username>",
+  "model":    "gpt4o",
+  "messages": [
+    {"role": "system",
+     "content": "You are Argo, a helpful scientific assistant."},
+    {"role": "user",
+     "content": "What is Argonne National Laboratory?"}
+  ],
+  "temperature": 0.1,
+  "max_tokens":  300
+}
+\end{lstlisting}
+
+\begin{block}{Roles}
+\texttt{system} — persistent instructions for the model \\
+\texttt{user} — the human's message \\
+\texttt{assistant} — the model's previous reply (for multi-turn)
+\end{block}
+\end{frame}
+
+% ── 4. Prompt Format ─────────────────────────────────────────────────────
+\begin{frame}[fragile]{Prompt Format}
+\begin{lstlisting}[language=json,title={Prompt payload}]
+{
+  "user":   "<anl_username>",
+  "model":  "gpt4o",
+  "system": "You are Argo, a helpful scientific assistant.",
+  "prompt": [
+    "What is Argonne National Laboratory?"
+  ],
+  "temperature": 0.1,
+  "max_tokens":  300
+}
+\end{lstlisting}
+
+\begin{itemize}
+  \item \texttt{prompt} is a \textbf{list} of strings (even for a single question)
+  \item \texttt{system} is a single string (optional)
+  \item No \texttt{role} annotations --- simpler but less flexible
+\end{itemize}
+\end{frame}
+
+% ── 5. Common Response Structure ─────────────────────────────────────────
+\begin{frame}[fragile]{Common Response Structure}
+Both formats return the same JSON shape:
+
+\begin{lstlisting}[language=json,title={Response from /chat/}]
+{
+  "response": "Argonne National Laboratory is a
+    multidisciplinary science and engineering
+    research center ..."
+}
+\end{lstlisting}
+
+\vspace{1em}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Field} & \textbf{Description} \\
+\midrule
+\texttt{response} & The model's text reply (string) \\
+\texttt{error}    & Present only on failure \\
+\bottomrule
+\end{tabular}
+
+\vspace{1em}
+The gateway normalises outputs regardless of the backend provider.
+\end{frame}
+
+% ── 6. Model-Family Differences ──────────────────────────────────────────
+\begin{frame}{Model-Family Parameter Differences}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Aspect} & \textbf{OpenAI (GPT)} & \textbf{Anthropic (Claude)} \\
+\midrule
+\texttt{max\_tokens}                  & Optional              & \textbf{Required} \\
+\texttt{temperature} + \texttt{top\_p} & Both allowed          & Only one allowed \\
+Parameter style                        & \texttt{standard}     & \texttt{anthropic\_single} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{1em}
+\begin{block}{The demo handles this automatically}
+\begin{lstlisting}[language=Python]
+if paramStyle == "standard":
+    payload.update({"temperature": 0.1,
+                    "top_p": 0.9, "max_tokens": 300})
+elif paramStyle == "anthropic_single":
+    payload.update({"temperature": 0.1,
+                    "max_tokens": 300})
+\end{lstlisting}
+\end{block}
+\end{frame}
+
+% ── 7. Building Payloads in Python ───────────────────────────────────────
+\begin{frame}[fragile]{Building Payloads in Python}
+\begin{lstlisting}[language=Python,title={Messages format builder}]
+def buildMessagesPayload(user, model, modelConfig):
+    payload = {
+        "user": user, "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_MESSAGE},
+            {"role": "user",   "content": USER_QUESTION},
+        ],
+    }
+    applyParams(payload, modelConfig)
+    return payload
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,title={Prompt format builder}]
+def buildPromptPayload(user, model, modelConfig):
+    payload = {
+        "user": user, "model": model,
+        "system": SYSTEM_MESSAGE,
+        "prompt": [USER_QUESTION],
+    }
+    applyParams(payload, modelConfig)
+    return payload
+\end{lstlisting}
+\end{frame}
+
+% ── 8. Validation Strategy ───────────────────────────────────────────────
+\begin{frame}{Validation Strategy}
+Each example runs eight checks on the response:
+
+\vspace{0.5em}
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{\#} & \textbf{Check} & \textbf{Pass Condition} \\
+\midrule
+1 & HTTP Status         & \texttt{statusCode == 200} \\
+2 & Valid JSON          & Response parses as \texttt{dict} \\
+3 & No Error            & No \texttt{"error"} key present \\
+4 & Has Response Field  & \texttt{"response"} key exists \\
+5 & Non-empty           & Response text is non-empty \\
+6 & Response Is String  & Value is a Python \texttt{str} \\
+7 & Contains Keywords   & "argonne", "laboratory" found \\
+8 & Latency             & \texttt{duration < 120s} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.5em}
+Keyword checks confirm the model actually answered the question,
+not just returned a generic response.
+\end{frame}
+
+% ── 9. Running the Demo ──────────────────────────────────────────────────
+\begin{frame}[fragile]{Running the Demo}
+\begin{lstlisting}[language=bash,title={CLI usage}]
+# All combinations (2 models x 2 formats)
+python chatDemo.py -u <username>
+
+# Single model
+python chatDemo.py -u <username> --model gpt4o
+
+# Single format
+python chatDemo.py -u <username> --format messages
+
+# Combine filters
+python chatDemo.py -u <username> --model claudesonnet45 \
+                                 --format prompt
+\end{lstlisting}
+
+\vspace{0.5em}
+\textbf{Requirements:} Python 3.10+, \texttt{requests} library,
+ANL domain username with Argo access.
+\end{frame}
+
+% ── 10. Summary & Next Steps ─────────────────────────────────────────────
+\begin{frame}{Summary \& Next Steps}
+\textbf{What we covered:}
+\begin{itemize}
+  \item Two input formats: messages (role/content array) vs.\ prompt (system + prompt fields)
+  \item Common response structure (\texttt{response} field)
+  \item Provider-specific parameter handling
+  \item Content validation via keyword checks
+\end{itemize}
+
+\vspace{1em}
+\textbf{Next examples in the series:}
+\begin{enumerate}
+  \setcounter{enumi}{2}
+  \item Multi-turn conversations (context retention)
+  \item Streaming responses
+  \item OpenAI-compatible endpoint
+  \item Anthropic Messages endpoint
+  \item Embeddings
+  \item Error handling
+  \item Parameter tuning
+\end{enumerate}
+\end{frame}
+
+\end{document}
